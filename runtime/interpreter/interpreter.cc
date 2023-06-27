@@ -34,6 +34,21 @@
 #include "stack.h"
 #include "thread-inl.h"
 #include "unstarted_runtime.h"
+/* XUPK Begin */
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+#include <string.h>
+#include "art_method-inl.h"
+#include "mirror/class-inl.h"
+#include "mirror/object_array-inl.h"
+#include "reflection.h"
+#include <string.h>
+#include <android/log.h>
+#include <errno.h>
+#include <stdlib.h>
+#include "xupk.h"
+/* XUPK End */
 
 namespace art {
 namespace interpreter {
@@ -342,6 +357,9 @@ void EnterInterpreterFromInvoke(Thread* self,
                                 uint32_t* args,
                                 JValue* result,
                                 bool stay_in_interpreter) {
+  /* XUPK Begin */
+  bool isFakeInvokeMethod = Xupk::isFakeInvoke(self, method);
+  /* XUPK End */
   DCHECK_EQ(self, Thread::Current());
   bool implicit_check = Runtime::Current()->GetImplicitStackOverflowChecks();
   if (UNLIKELY(__builtin_frame_address(0) < self->GetStackEndForInterpreter(implicit_check))) {
@@ -385,8 +403,18 @@ void EnterInterpreterFromInvoke(Thread* self,
 
   size_t cur_reg = num_regs - num_ins;
   if (!method->IsStatic()) {
-    CHECK(receiver != nullptr);
-    shadow_frame->SetVRegReference(cur_reg, receiver);
+    /* XUPK Begin */
+    if (isFakeInvokeMethod)
+    {
+      //LOG(INFO)<<"EnterInterpreterFromInvoke1";
+      shadow_frame->SetVReg(cur_reg, args[0]);
+    }
+    else
+    {
+      CHECK(receiver != nullptr);
+      shadow_frame->SetVRegReference(cur_reg, receiver);
+    }
+    /* XUPK End */
     ++cur_reg;
   }
   uint32_t shorty_len = 0;
@@ -395,9 +423,19 @@ void EnterInterpreterFromInvoke(Thread* self,
     DCHECK_LT(shorty_pos + 1, shorty_len);
     switch (shorty[shorty_pos + 1]) {
       case 'L': {
-        ObjPtr<mirror::Object> o =
-            reinterpret_cast<StackReference<mirror::Object>*>(&args[arg_pos])->AsMirrorPtr();
-        shadow_frame->SetVRegReference(cur_reg, o);
+        /* XUPK Begin */
+        if (isFakeInvokeMethod)
+        {
+          //LOG(INFO)<<"EnterInterpreterFromInvoke2";
+          shadow_frame->SetVReg(cur_reg, args[arg_pos]);
+        }
+        else
+        {
+          ObjPtr<mirror::Object> o =
+              reinterpret_cast<StackReference<mirror::Object>*>(&args[arg_pos])->AsMirrorPtr();
+          shadow_frame->SetVRegReference(cur_reg, o);
+        }
+        /* XUPK End */
         break;
       }
       case 'J': case 'D': {

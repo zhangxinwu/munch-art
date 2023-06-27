@@ -39,6 +39,9 @@
 #include "shadow_frame-inl.h"
 #include "thread.h"
 #include "verifier/method_verifier.h"
+/* XUPK Begin */
+#include "xupk.h"
+/* XUPK End */
 
 namespace art {
 namespace interpreter {
@@ -1838,6 +1841,30 @@ void ExecuteSwitchImplCpp(SwitchImplContext* ctx) {
   Thread* self = ctx->self;
   const CodeItemDataAccessor& accessor = ctx->accessor;
   ShadowFrame& shadow_frame = ctx->shadow_frame;
+  /* XUPK Begin */
+  // when class is initializing,dump the dex file
+  ArtMethod *artMethod = shadow_frame.GetMethod();
+  bool isFakeInvokeMethod = Xupk::isFakeInvoke(self, artMethod);
+
+  if (!isFakeInvokeMethod && strstr(artMethod->PrettyMethod(true).c_str(), "<clinit>") != nullptr)
+  {
+    const DexFile *dexFile = artMethod->GetDexFile();
+    char feature[] = "ExecuteSwitchImplCpp";
+    Xupk::dumpDexFile(dexFile, feature);
+    Xupk::dumpClassName(dexFile, feature);
+  }
+  /* XUPK End */
+  /* XUPK Begin */
+  // print call methodName
+  if (!isFakeInvokeMethod && Xupk::isCallChainLog()) {
+    NthCallerVisitor visitor(self, 0, false);
+    uint32_t tid = static_cast<uint32_t>(self->GetTid());
+    Xupk::log("XUPK CallChain: Tid[%u]-<%d> %s", tid, visitor.GetFrameId(), artMethod->PrettyMethod(true).c_str());
+    // LOG(INFO) << "XUPK CallChain: Tid[" << static_cast<uint32_t>(self->GetTid()) << "]-<" 
+    //           << visitor.GetFrameId() << "> " 
+    //           << artMethod->PrettyMethod(true);
+  }
+  /* XUPK End */
   self->VerifyStack();
 
   uint32_t dex_pc = shadow_frame.GetDexPC();
@@ -1849,12 +1876,41 @@ void ExecuteSwitchImplCpp(SwitchImplContext* ctx) {
       << "Entered interpreter from invoke without retry instruction being handled!";
 
   bool const interpret_one_instruction = ctx->interpret_one_instruction;
+  /* XUPK Begin */
+  int inst_seq = 0;
+  bool isdump = false;
+  /* XUPK End */
   while (true) {
     const Instruction* const inst = next;
     dex_pc = inst->GetDexPc(insns);
     shadow_frame.SetDexPC(dex_pc);
     TraceExecution(shadow_frame, inst, dex_pc);
     uint16_t inst_data = inst->Fetch16(0);
+    /* XUPK Begin */
+    uint8_t opcode = inst->Opcode(inst_data);
+    if (isFakeInvokeMethod)
+    {
+      if(inst_seq == 0 && (opcode == Instruction::GOTO ||
+          opcode == Instruction::GOTO_16 || opcode == Instruction::GOTO_32))
+        isdump = true;
+      else
+      {
+        isdump = false;
+        char feature[] = "ExecuteSwitchImplCpp";
+        Xupk::dumpMethod(artMethod, feature);
+        break;
+      }
+      if(isdump && inst_seq == 1 && opcode >= Instruction::CONST_4 && opcode <= Instruction::CONST_WIDE_HIGH16)
+        isdump = true;
+      else
+      {
+        isdump = false;
+        char feature[] = "ExecuteSwitchImplCpp";
+        Xupk::dumpMethod(artMethod, feature);
+        break;
+      }
+    }
+    /* XUPK End */
     bool exit = false;
     bool success;  // Moved outside to keep frames small under asan.
     if (InstructionHandler<do_access_check, transaction_active, Instruction::kInvalidFormat>(
@@ -1876,6 +1932,24 @@ void ExecuteSwitchImplCpp(SwitchImplContext* ctx) {
 #undef OPCODE_CASE
       }
     }
+    /* XUPK Begin */
+    if(isFakeInvokeMethod)
+    {
+      if(isdump && inst_seq == 2 && (opcode == Instruction::INVOKE_STATIC || opcode == Instruction::INVOKE_STATIC_RANGE))
+      {
+        char feature[] = "ExecuteSwitchImplCpp";
+        Xupk::dumpMethod(artMethod, feature);
+        break;
+      }
+      if(inst_seq > 2)
+      {
+        char feature[] = "ExecuteSwitchImplCpp";
+        Xupk::dumpMethod(artMethod, feature);
+        break;
+      }
+    }
+    inst_seq++;
+    /* XUPK End */
     if (exit) {
       shadow_frame.SetDexPC(dex::kDexNoIndex);
       return;  // Return statement or debugger forced exit.

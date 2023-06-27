@@ -18,7 +18,11 @@
 
 #include <algorithm>
 #include <cstddef>
-
+/* XUPK Begin */
+#include <dlfcn.h>
+ 
+#include "android-base/properties.h"
+/* XUPK End */
 #include "android-base/stringprintf.h"
 
 #include "arch/context.h"
@@ -53,6 +57,30 @@
 #include "runtime_callbacks.h"
 #include "scoped_thread_state_change-inl.h"
 #include "vdex_file.h"
+
+/* XUPK Begin */
+#include <sys/stat.h>
+#include <fcntl.h>
+#include "runtime.h"
+#include <android/log.h>
+#include <assert.h>
+#include <errno.h>
+#include <pthread.h>
+#include <stdarg.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/types.h>
+#include <sys/uio.h>
+#include <sys/un.h>
+#include <time.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include "xupk.h"
+#include "nth_caller_visitor.h"
+/* XUPK End */
 
 namespace art {
 
@@ -312,6 +340,19 @@ uint32_t ArtMethod::FindCatchBlock(Handle<mirror::Class> exception_type,
 
 void ArtMethod::Invoke(Thread* self, uint32_t* args, uint32_t args_size, JValue* result,
                        const char* shorty) {
+  /* XUPK Begin */
+  bool isFakeInvokeMethod = Xupk::isFakeInvoke(self, this);
+  if (!isFakeInvokeMethod && Xupk::isCallChainLog()) {
+    uint32_t tid = static_cast<uint32_t>(self->GetTid());
+    NthCallerVisitor visitor(self, 0, false);
+    Xupk::log("XUPK CallChain: Tid[%u]-<%d> artMethod %s", 
+              tid, visitor.GetFrameId(), PrettyMethod().c_str());
+    // LOG(INFO) << "XUPK CallChain: Tid[" << static_cast<uint32_t>(self->GetTid()) << "]-<" 
+    //           << visitor.GetFrameId() << "> artMethod " 
+    //           << PrettyMethod();
+  }
+  /* XUPK End */
+
   if (UNLIKELY(__builtin_frame_address(0) < self->GetStackEnd())) {
     ThrowStackOverflowError(self);
     return;
@@ -332,8 +373,24 @@ void ArtMethod::Invoke(Thread* self, uint32_t* args, uint32_t args_size, JValue*
   // If the runtime is not yet started or it is required by the debugger, then perform the
   // Invocation by the interpreter, explicitly forcing interpretation over JIT to prevent
   // cycling around the various JIT/Interpreter methods that handle method invocation.
+
+  /* XUPK Begin */
+  // 当isFakeInvokeMethod==true时且不为native方法时,使其强制走解释器
+  //if (UNLIKELY(!runtime->IsStarted() || Dbg::IsForcedInterpreterNeededForCalling(self, this)))
+  // if (isFakeInvokeMethod)
+  // {
+  //   LOG(INFO) << "is fake invoke:"<< "true--"<<PrettyMethod(this);
+  // }
+  // else
+  // {
+  //   LOG(INFO) << "is fake invoke:"<< "false--"<<PrettyMethod(this);
+  // }
   if (UNLIKELY(!runtime->IsStarted() ||
-               (self->IsForceInterpreter() && !IsNative() && !IsProxyMethod() && IsInvokable()))) {
+  // -          (self->IsForceInterpreter() && !IsNative() && !IsProxyMethod() && IsInvokable()))) {
+                (self->IsForceInterpreter() && !IsNative() && !IsProxyMethod() && IsInvokable()) ||
+                Dbg::IsForcedInterpreterNeededForUpcall(self, this))
+                || ((isFakeInvokeMethod || Xupk::isCallChainLog() || Xupk::isUnpackFlag ) && !IsNative() && !IsProxyMethod() && IsInvokable())) {
+  /* XUPK End */
     if (IsStatic()) {
       art::interpreter::EnterInterpreterFromInvoke(
           self, this, nullptr, args, result, /*stay_in_interpreter=*/ true);
@@ -366,11 +423,70 @@ void ArtMethod::Invoke(Thread* self, uint32_t* args, uint32_t args_size, JValue*
             << "Don't call compiled code when -Xint " << PrettyMethod();
       }
 
-      if (!IsStatic()) {
-        (*art_quick_invoke_stub)(this, args, args_size, self, result, shorty);
-      } else {
-        (*art_quick_invoke_static_stub)(this, args, args_size, self, result, shorty);
+      /* XUPK Begin */
+      #if defined(__aarch64__)
+      // anduni
+      typedef int (*unicall_def)(ArtMethod*, uint32_t*, uint32_t, Thread*, JValue*, const char*, int, void const*, const void*);
+      typedef void (*update_def)(const char*);
+      static void* libanduni = nullptr;
+      static unicall_def unicall = nullptr, unicallforce = nullptr;
+      static int updateAnduni = 0;
+      int run = -1;
+      update_def update_func = nullptr;
+      int cpid = (int)android::base::GetUintProperty<uint32_t>("anduni_pid", 0);
+      if(cpid == 1 || cpid == getpid())
+      {
+        if (android::base::GetUintProperty<uint32_t>("anduni_show", 0) == 1)
+        {
+          std::string prettymethod = PrettyMethod();
+          LOG(INFO) << "libanduni " << prettymethod;
+        }
+        int ua = android::base::GetUintProperty<uint32_t>("anduni_update", updateAnduni);
+        if (ua != updateAnduni)
+        {
+          updateAnduni = ua;
+          if (!unicall) libanduni = dlopen("libanduni.so", RTLD_LAZY);
+          if (!libanduni) LOG(ERROR) << "libanduni dlopen error " <<  dlerror();
+          if (libanduni) update_func = (update_def)dlsym(libanduni, "android_update_config");
+          if (update_func) {
+            std::string config = android::base::GetProperty("anduni_config", "");
+            update_func(config.c_str());
+            unicall = (unicall_def)dlsym(libanduni, "android_native_call");
+            unicallforce = (unicall_def)dlsym(libanduni, "android_native_call_force");
+          }
+        }
+        
+        if (android::base::GetUintProperty<uint32_t>("anduni_force", 0)) {
+          if (!unicallforce) libanduni = dlopen("libanduni.so", RTLD_LAZY);
+          if (!libanduni) LOG(ERROR) << "libanduni dlopen error " <<  dlerror();
+          if (libanduni && !unicallforce) unicallforce = (unicall_def)dlsym(libanduni, "android_native_call_force");
+          void* nativeCode = (void *)art_quick_invoke_static_stub;
+          if (!IsStatic()) {
+            nativeCode = (void *)art_quick_invoke_stub;
+          }
+          run = unicallforce(this, args, args_size, self, result, shorty, IsStatic(), nativeCode, PrettyMethod().c_str());
+        } else {
+          if (!unicall) libanduni = dlopen("libanduni.so", RTLD_LAZY);
+          if (!libanduni) LOG(ERROR) << "libanduni dlopen error " <<  dlerror();
+          if (libanduni && !unicall) unicall = (unicall_def)dlsym(libanduni, "android_native_call");
+          if (unicall)
+          {
+            void const* nativeCode = this->GetEntryPointFromJni();
+            if (nativeCode != nullptr && nativeCode != GetJniDlsymLookupStub())
+              run = unicall(this, args, args_size, self, result, shorty, IsStatic(), nativeCode, PrettyMethod().c_str());
+          } else LOG(ERROR) << "libanduni unicall error!";
+        }
       }
+      if (run)
+      #endif
+      {
+        if (!IsStatic()) {
+          (*art_quick_invoke_stub)(this, args, args_size, self, result, shorty);
+        } else {
+          (*art_quick_invoke_static_stub)(this, args, args_size, self, result, shorty);
+        }
+       }
+      /* XUPK End */
       if (UNLIKELY(self->GetException() == Thread::GetDeoptimizationException())) {
         // Unusual case where we were running generated code and an
         // exception was thrown to force the activations to be removed from the

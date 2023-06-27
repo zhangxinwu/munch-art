@@ -24,6 +24,9 @@
 namespace art {
 
 class OatDexFile;
+/* XUPK Begin */
+class Xupk;
+/* XUPK End */
 
 // Standard dex file. This is the format that is packaged in APKs and produced by tools.
 class StandardDexFile : public DexFile {
@@ -74,6 +77,9 @@ class StandardDexFile : public DexFile {
     friend class CodeItemInstructionAccessor;
     friend class DexWriter;
     friend class StandardDexFile;
+    /* XUPK Begin */
+    friend class Xupk;
+    /* XUPK End */
     DISALLOW_COPY_AND_ASSIGN(CodeItem);
   };
 

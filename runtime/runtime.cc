@@ -176,6 +176,9 @@
 #include "vdex_file.h"
 #include "verifier/class_verifier.h"
 #include "well_known_classes.h"
+/* XUPK Begin */
+#include "xupk.h"
+/* XUPK End */
 
 #ifdef ART_TARGET_ANDROID
 #include <android/set_abort_message.h>
@@ -2218,6 +2221,9 @@ jobject Runtime::GetSystemClassLoader() const {
 }
 
 void Runtime::RegisterRuntimeNativeMethods(JNIEnv* env) {
+  /* XUPK Begin */
+  Xupk::register_android_app_Xupk(env);
+  /* XUPK End */
   register_dalvik_system_DexFile(env);
   register_dalvik_system_BaseDexClassLoader(env);
   register_dalvik_system_VMDebug(env);

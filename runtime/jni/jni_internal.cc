@@ -64,6 +64,10 @@
 #include "scoped_thread_state_change-inl.h"
 #include "thread.h"
 #include "well_known_classes.h"
+/* XUPK Begin */
+#include "xupk.h"
+#include <unistd.h>
+/* XUPK End */
 
 namespace art {
 
@@ -668,6 +672,12 @@ class JNI {
 
   static jclass FindClass(JNIEnv* env, const char* name) {
     CHECK_NON_NULL_ARGUMENT(name);
+    /* XUPK Begin */
+    // print FindClass name
+    if (Xupk::isCallChainLog()) {
+      Xupk::log("XUPK JNI FindClass: %s", name);
+    }
+    /* XUPK End */
     Runtime* runtime = Runtime::Current();
     ClassLinker* class_linker = runtime->GetClassLinker();
     std::string descriptor(NormalizeJniClassDescriptor(name));
@@ -2587,6 +2597,16 @@ class JNI {
         ReportInvalidJNINativeMethod(soa, c.Get(), "native function", i);
         return JNI_ERR;
       }
+      /* XUPK Begin */
+      // print RegisterNatives name
+      if (Xupk::isCallChainLog()) {
+        Xupk::log("XUPK JNI RegisterNatives: name[%s], sig[%s], fnPtr[%p]", name, sig, fnPtr);
+        // LOG(INFO) << "XUPK JNI RegisterNatives:"
+        //           << "name[" << name << "], "
+        //           << "sig[" << sig << "], "
+        //           << "fnPtr[" << fnPtr << "]";
+      }
+      /* XUPK End */
       bool is_fast = false;
       // Notes about fast JNI calls:
       //

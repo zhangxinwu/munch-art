@@ -103,6 +103,9 @@ libart_cc_defaults {
     defaults: ["art_defaults"],
     host_supported: true,
     srcs: [
+        // XUPK Begin
+        "xupk.cc",
+        // XUPK End
         "app_info.cc",
         "aot_class_linker.cc",
         "art_field.cc",
@@ -217,6 +220,9 @@ libart_cc_defaults {
         "monitor_objects_stack_visitor.cc",
         "native_bridge_art_interface.cc",
         "native_stack_dump.cc",
+        // XUPK Begin
+        "native/xupk_method.cc",
+        // XUPK End
         "native/dalvik_system_DexFile.cc",
         "native/dalvik_system_BaseDexClassLoader.cc",
         "native/dalvik_system_VMDebug.cc",
