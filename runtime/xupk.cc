@@ -71,6 +71,8 @@ namespace art
     {
         if (artMethod->IsAbstract() || artMethod->IsNative() || (!artMethod->IsInvokable()) || artMethod->IsProxyMethod())
         {
+            LOG(INFO) << artMethod->PrettyMethod(true) << " isAbstract:" << artMethod->IsAbstract() << " isNative:" << artMethod->IsNative() 
+                << " !isInvokable:" << (!artMethod->IsInvokable()) << " isProxyMethod:" << artMethod->IsProxyMethod();
             return;
         }
         JValue result;
@@ -246,23 +248,29 @@ namespace art
      */
     void Xupk::dumpClassName(const DexFile *dexFile, const char *feature)
     {
-        char szProcName[256] = {0};
-        if (!getProcessName(szProcName))
+        char* fileName = new char[256];
         {
-            LOG(INFO) << "XUPK->dumpMethod:"
-                      << "get process name failed";
-            return;
+            char* szProcName = new char[256];
+            if (!getProcessName(szProcName))
+            {
+                LOG(INFO) << "XUPK->dumpMethod:"
+                        << "get process name failed";
+                delete[] szProcName;
+                return;
+            }
+            // 创建目录
+            char* filePath = new char[256];
+            sprintf(filePath, "/data/data/%s/xupk", szProcName);
+            mkdir(filePath, 0777);
+
+            // 构造文件名
+            int dexFileSize = (int)dexFile->Size();
+            sprintf(fileName, "%s/%d_%s_class.json", filePath, dexFileSize, feature);
+
+            delete[] szProcName;
+            delete[] filePath;
         }
-        // 创建目录
-        char filePath[256] = {0};
-        sprintf(filePath, "/data/data/%s/xupk", szProcName);
-        mkdir(filePath, 0777);
-
-        // 构造文件名
-        char fileName[256] = {0};
-        int dexFileSize = (int)dexFile->Size();
-        sprintf(fileName, "%s/%d_%s_class.json", filePath, dexFileSize, feature);
-
+        LOG(INFO) << "XUPK->dump class name:" << fileName;
         ifstream iFile;
         iFile.open(fileName, ios::in);
         if (!iFile.is_open())
@@ -280,21 +288,22 @@ namespace art
             oFile.open(fileName, ios::out);
             if (oFile.is_open())
             {
-                oFile << root;
+                oFile << setw(4) << root;
                 oFile.close();
                 LOG(INFO) << "XUPK->dump class name:success:" << fileName;
             }
             else
             {
-                //LOG(INFO) << "XUPK->dumpClassName:failed,file name:" << fileName << ",error:" << strerror(errno);
+                LOG(INFO) << "XUPK->dumpClassName:failed,file name:" << fileName << ",error:" << strerror(errno);
             }
         }
         else
         {
             // 文件已存在
-            //LOG(INFO) << "XUPK->dumpClassName:file exist";
+            LOG(INFO) << "XUPK->dumpClassName:file exist";
             iFile.close();
         }
+        delete[] fileName;
     }
 
     /**
@@ -324,7 +333,7 @@ namespace art
         const uint8_t *dexFileBegin = dexFile->Begin();
 
         int dexFileSize = (int)dexFile->Size();
-        uint32_t methodIndex = artMethod->GetMethodIndex();
+        uint32_t methodIndex = artMethod->GetDexMethodIndex();
         const StandardDexFile::CodeItem *codeItem = down_cast<const StandardDexFile::CodeItem*>(artMethod->GetCodeItem());
         if (codeItem == nullptr)
         {
@@ -614,7 +623,7 @@ namespace art
             in.close();
             index = !index;
         }
-        if(strlen(callChainProName[index]) == 0)
+        if(strlen(callChainProName[index].c_str()) == 0)
             return false;
         char crr[256];
         memset(crr, 0, sizeof(crr));
