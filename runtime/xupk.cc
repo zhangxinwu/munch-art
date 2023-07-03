@@ -71,8 +71,8 @@ namespace art
     {
         if (artMethod->IsAbstract() || artMethod->IsNative() || (!artMethod->IsInvokable()) || artMethod->IsProxyMethod())
         {
-            LOG(INFO) << artMethod->PrettyMethod(true) << " isAbstract:" << artMethod->IsAbstract() << " isNative:" << artMethod->IsNative() 
-                << " !isInvokable:" << (!artMethod->IsInvokable()) << " isProxyMethod:" << artMethod->IsProxyMethod();
+            // LOG(INFO) << artMethod->PrettyMethod(true) << " isAbstract:" << artMethod->IsAbstract() << " isNative:" << artMethod->IsNative() 
+            //     << " !isInvokable:" << (!artMethod->IsInvokable()) << " isProxyMethod:" << artMethod->IsProxyMethod();
             return;
         }
         JValue result;
